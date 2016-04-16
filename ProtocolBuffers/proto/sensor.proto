@@ -1,0 +1,32 @@
+package codeterrific;
+
+message Sensor {
+
+  enum SensorType {
+    TEMPERATURE = 0;
+    HUMIDITY = 1;
+  }
+
+  // Identifies which sensor type will be filled in.
+  required SensorType sensorType = 1;
+
+  // One of the following message types will be filled in.
+  optional Temperature temperature = 2;
+  optional Humidity humidity = 3;
+
+}
+
+enum Environment {
+  INDOOR = 0;
+  OUTDOOR = 1;
+}
+
+message Temperature {
+  required float temperature = 1;
+  required Environment environment = 2;
+}
+
+message Humidity {
+  required int32 humidity = 1;
+  required Environment environment = 2;
+}
