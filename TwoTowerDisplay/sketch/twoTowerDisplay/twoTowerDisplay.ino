@@ -1,14 +1,20 @@
 #include "LedControl.h"
-#include <Servo.h>
+#include <SoftwareSerial.h>
 
-byte RED        = B00000001;
-byte BLUE       = B00000100;
-byte GREEN      = B00000010;
-byte YELLOW     = B00000011;
-byte MAGENTA    = B00000101;
-byte CYAN       = B00000110;
-byte WHITE      = B00000111;
-byte OFF        = B00000000;
+int bluetoothTx = 2; //Bluetooth tx pin on arduino
+int bluetoothRx = 3; //Bluetooth rx pin on arduino
+
+SoftwareSerial bluetooth(bluetoothTx, bluetoothRx);
+
+byte RED        = B00000001;  // 1
+byte BLUE       = B00000100;  // 4
+byte GREEN      = B00000010;  // 2
+byte YELLOW     = B00000011;  // 3
+byte MAGENTA    = B00000101;  // 5
+byte CYAN       = B00000110;  // 6
+byte WHITE      = B00000111;  // 7
+byte OFF        = B00000000;  // 0
+
 
 /*
  * Helper function for setting color
@@ -62,82 +68,18 @@ const int RIGHT_TOWER_MAX_IC = 1;
 LedControl lc1  = LedControl(12,11,10,1);
 LedControl lc2  = LedControl(7,6,5,1);
 
-// schedules
-const int MAX_ALLOWED_SCHEDULE_LENGTH = 5;
-byte* scheduleLeftTower[MAX_ALLOWED_SCHEDULE_LENGTH] = {0};
-byte* scheduleRightTower[MAX_ALLOWED_SCHEDULE_LENGTH] = {0};
+byte schemaTowerBuffer[8] =  {0};
+int tstate =0;
+int numBytes;
+byte nbbuff[50] = {0};
 
-void addSchemaToSchedule(int tower, int position, byte * schema)
-{
-  if(position < MAX_ALLOWED_SCHEDULE_LENGTH && position >= 0)
-  {
-    if(tower == LEFT_TOWER_MAX_IC)
-      scheduleLeftTower[position] = schema;
-    else
-      scheduleRightTower[position] = schema;
-  } 
-}
-
-//Schema display
-byte schemaAllColorsTest[8] = {LED_ROW(RED, RED), 
-                               LED_ROW(GREEN, GREEN), 
-                               LED_ROW(BLUE, BLUE),
-                               LED_ROW(YELLOW, YELLOW), 
-                               LED_ROW(MAGENTA, MAGENTA), 
-                               LED_ROW(CYAN, CYAN), 
-                               LED_ROW(WHITE, WHITE), 
-                               LED_ROW(OFF, OFF)}; 
-
-byte schemaMixedRedHalfBlue[8] = {LED_ROW(RED, BLUE), 
-                                 LED_ROW(BLUE, RED), 
-                                 LED_ROW(RED, BLUE), 
-                                 LED_ROW(BLUE, RED), 
-                                 LED_ROW(RED, BLUE), 
-                                 LED_ROW(BLUE, RED),
-                                 LED_ROW(RED, BLUE), 
-                                 LED_ROW(BLUE, RED)}; 
-
-byte schemaHalfRedHalfBlue[8] = {LED_ROW(YELLOW, YELLOW), 
-                                 LED_ROW(YELLOW, YELLOW), 
-                                 LED_ROW(YELLOW, YELLOW), 
-                                 LED_ROW(YELLOW, YELLOW), 
-                                 LED_ROW(BLUE, BLUE), 
-                                 LED_ROW(BLUE, BLUE),
-                                 LED_ROW(BLUE, BLUE), 
-                                 LED_ROW(BLUE, BLUE)};
-
-byte schemaHalfBlueHalfRed[8] = {LED_ROW(BLUE, BLUE), 
-                                 LED_ROW(BLUE, BLUE),
-                                 LED_ROW(BLUE, BLUE), 
-                                 LED_ROW(BLUE, BLUE),
-                                 LED_ROW(YELLOW, YELLOW), 
-                                 LED_ROW(YELLOW, YELLOW), 
-                                 LED_ROW(YELLOW, YELLOW), 
-                                 LED_ROW(YELLOW, YELLOW)};
-
-
-
-
-Servo leftServo;
-Servo rightServo;
-
-/* global variables */
-unsigned long delaytime=20;
-
-int leftServoControlPin  = 9;
-int rightServoControlPin = 3;
-
-int initialPositionLeftServo  = 75;
-int initialPositionRightServo = 75;
-
-int currentPositionLeftServo   = initialPositionLeftServo;
-int currrentPositionRightServo = initialPositionRightServo;
 
 /* Functions */
 
 void setup() 
 {
   Serial.begin(9600);
+  bluetooth.begin(9600);
 
   /* -- Setup MAX7219 LED drivers -- */
   lc1.shutdown(0,false);
@@ -152,24 +94,11 @@ void setup()
   /* and clear the display */
   lc2.clearDisplay(0);
 
-  /* -- Setup Servo motors -- */
-  //leftServo.attach(leftServoControlPin);
-  
-  //rightServo.attach(rightServoControlPin);s
-
-
-  //setSchema(LEFT_TOWER_MAX_IC,schemaAllColorsTest);
-  //setSchema(RIGHT_TOWER_MAX_IC,schemaHalfRedHalfBlue);
-
-  addSchemaToSchedule(LEFT_TOWER_MAX_IC,0,schemaHalfBlueHalfRed);
-  addSchemaToSchedule(LEFT_TOWER_MAX_IC,1,schemaHalfRedHalfBlue);
-
-  addSchemaToSchedule(RIGHT_TOWER_MAX_IC,1,schemaHalfBlueHalfRed);
-  addSchemaToSchedule(RIGHT_TOWER_MAX_IC,0,schemaHalfRedHalfBlue);
 }
 
 void loop() 
 {
+  //delay(500);
   serialManager();
   //Other tasks;
   
@@ -177,51 +106,90 @@ void loop()
 
 void serialManager()
 {
-  while (Serial.available()) {
-    // get the new byte:
-    char inChar = (char)Serial.read();
-    //Set schema. s[byte1][byte2][byte3][byte4][byte5][byte6][byte7][byte8]
-    if (inChar == 's')
+  int i=0,j=0;
+  int tower = 0;
+  int istart=0, istop=0;
+  byte inByte = 0;
+
+    if(bluetooth.available() > 0)
     {
-      runSchedule(500);
+      inByte = bluetooth.read();
+      //Serial.print(inByte);Serial.println("-");
     }
-    else if (inChar == 's')
+    else
+      return;
+
+    if(inByte == '*')
     {
-      runSchedule(1000);
+      tstate = 1;
+      numBytes = 0;
+      //Serial.println("State=1");
+      //Serial.print("1numBytes=");Serial.println(numBytes);
     }
-  }
+    if(inByte == 'L' && tstate == 1)
+    {
+      tstate = 2;
+      tower  = LEFT_TOWER_MAX_IC; // Left
+      //Serial.println("L State=2");
+      //Serial.print("2numBytes=");Serial.println(numBytes);
+    }
+    if(inByte == 'R' && tstate == 1)
+    {
+      tstate = 2;
+      tower  = RIGHT_TOWER_MAX_IC; // Right
+      //Serial.println("R State=2");
+      //Serial.print("2numBytes=");Serial.println(numBytes);
+    }
+    if(tstate == 1 && inByte != '*' && inByte != 'L'  && inByte != 'R')
+    {
+      nbbuff[numBytes] = (byte)inByte;
+      numBytes++;
+      //Serial.print(">numBytes=");Serial.println(numBytes);
+    }
+    
+    if (tstate == 2)
+    {
+       tstate = 0;
+       //Serial.print("numBytes=");Serial.println(numBytes);
+       //Serial.print("tower=");Serial.println(tower);
+       //if(numBytes >= 3 && numBytes <=18) 
+       clearBuffer(schemaTowerBuffer);
+       i = 0;
+       byte odd = 0;
+       byte even = 0;
+       for(j=0; j<numBytes; j++ ) {
+          //Serial.print("j=");Serial.print(j);Serial.print(" "); 
+          if (j % 2)
+          {
+              //Serial.println(nbbuff[j]); 
+              odd = nbbuff[j];
+              //Serial.print("odd=");Serial.println(odd,DEC); 
+              //Serial.println(even,HEX);Serial.println(odd,HEX); 
+              schemaTowerBuffer[i] = LED_ROW(even, odd);
+              i++;
+          }
+          else
+          {
+              Serial.println(nbbuff[j]); 
+              even = nbbuff[j];
+              //Serial.print("even=");Serial.println(even,DEC);
+          }
+       }
+       numBytes = 0;
+       setSchema(tower ,schemaTowerBuffer);
+    }
+  
 }
 
-byte ** getSchedule()
+void clearBuffer(byte * schema)
 {
-   while (Serial.available())
+   for (int i=0; i < 8; i++)
    {
-      
+      schema[i] = 0;
    }
 }
 
-void runSchedule(int delayBetweenSchemas)
-{
-    for(int i=0; i < MAX_ALLOWED_SCHEDULE_LENGTH; i++)
-    {
-       int noMoreToShow = 0;
-      
-       if (scheduleLeftTower[i] != 0)
-          setSchema(LEFT_TOWER_MAX_IC,scheduleLeftTower[i]);
-       else 
-         noMoreToShow++;
-       if (scheduleRightTower[i] != 0)
-          setSchema(RIGHT_TOWER_MAX_IC,scheduleRightTower[i]);
-       else
-          noMoreToShow++;
 
-       // No more schedules defined for higher i. Break
-       if (noMoreToShow == 2)
-          break;
-          
-       delay(delayBetweenSchemas);
-    }
-}
 
 /*
  *  Function for converting schema to LED output
@@ -237,66 +205,4 @@ void setSchema(int maxChipSelect, byte* schema)
    }
 }
 
-
-void rainbow()
-{
-  for (int i = 0; i < 8; i++)
-  {
-     for (int j = 1; j < 6; j++)
-     {
-        lc1.setLed(0,i,j,random(2));
-        lc2.setLed(0,i,j,random(2));
-        delay(delaytime);
-     }
-  }
-}
-
-
-void runMotor(int pos, int milliseconds, int servo) // Left servo = 0, right servo = 1
-{
-  int direction = 0;
-  int currentPosition = 0;
-
-   if (servo == 0)
-   {
-     currentPosition = currentPositionLeftServo;
-   }
-   else if (servo == 1)
-   {
-    currentPosition = currrentPositionRightServo;
-   }
-
-   if (pos < currentPosition)
-  {
-     direction = -1;
-  }
-  else if (pos > currentPosition)
-  {
-    direction = 1;
-  }
-  else
-  {
-    direction = 0;
-  }
-
-  while (pos != currentPosition)
-  {
-    currentPosition += direction;
-    
-   if (servo == 0)
-   {
-      leftServo.write(currentPosition);
-      currentPositionLeftServo = currentPosition;
-   }
-   else if (servo == 1)
-   {
-      rightServo.write(currentPosition);
-      currrentPositionRightServo = currentPosition;
-   }
-
-   delay(milliseconds);
-   
-  } 
-
-}
 
