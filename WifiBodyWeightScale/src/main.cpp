@@ -18,7 +18,7 @@ uint8_t WEIGHT_SENT_LED_PIN = 2;
 uint8_t INTERRUPT_PIN = 0;
 volatile int lastTime = 0;
 
-// Function for converting duration to kilograms
+// Function for converting duration in microseconds to kilograms
 double linearApprox(int x)
 {
     //These calibration coefficients will differ in your body weight scale!
@@ -28,6 +28,8 @@ double linearApprox(int x)
     return weightKg;
 }
 
+// The interrupt service rutine (ISR)
+// Called every time an interrupt occurs
 void measurePulseWidth()
 {
     int t = micros();
@@ -138,7 +140,7 @@ void loop(void)
 
         //Blink the LED indicating that the measurment is done. Number of blinks
         //depends on which person it was
-        for(int i = 0 ; i <= numberOfBlinks; i++)
+        for(int i = 0 ; i < numberOfBlinks; i++)
         {
             digitalWrite(WEIGHT_SENT_LED_PIN, HIGH);
             delay(500);
